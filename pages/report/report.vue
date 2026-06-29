@@ -1,14 +1,25 @@
 <template>
   <!-- 统计页面主容器 -->
   <view class="container">
-    <!-- 月份选择器 -->
+    <!-- 时间维度选择 -->
     <view class="filter-bar">
-      <picker mode="selector" :range="availableMonthLabels" :value="selectedMonthIndex" @change="handleDateChange">
+      <view class="view-toggle">
+        <view class="toggle-opt" :class="{ active: viewMode === 'month' }" @click="switchView('month')">月</view>
+        <view class="toggle-opt" :class="{ active: viewMode === 'week' }" @click="switchView('week')">周</view>
+      </view>
+
+      <picker v-if="viewMode === 'month'" mode="selector" :range="availableMonthLabels" :value="selectedMonthIndex" @change="handleDateChange">
         <view class="date-picker">
-          <text class="date-text">{{ availableMonthLabels[selectedMonthIndex] }}</text>
+          <text class="date-text">{{ availableMonthLabels[selectedMonthIndex] || '--' }}</text>
           <text class="date-arrow">▼</text>
         </view>
       </picker>
+
+      <view v-if="viewMode === 'week'" class="week-nav">
+        <text class="nav-arrow" @click="shiftWeek(-1)">◀</text>
+        <text class="week-label">{{ weekLabel }}</text>
+        <text class="nav-arrow" @click="shiftWeek(1)">▶</text>
+      </view>
     </view>
 
     <!-- 月度收支汇总 -->
@@ -47,21 +58,22 @@
         </view>
       </view>
 
-      <!-- 分类进度条 -->
-      <view class="chart-container">
-        <view v-for="(item, index) in chartData" :key="index" class="chart-item">
-          <view class="chart-label">
-            <text class="label-icon">{{ getCategoryIcon(item.name) }}</text>
-            <text class="label-text">{{ item.name }}</text>
-          </view>
-          <view class="chart-bar-wrap">
-            <view class="chart-bar" :style="{ width: item.percent + '%', background: getBarColor(index) }"></view>
-          </view>
-          <view class="chart-value">
-            <text class="value-amount">¥{{ formatMoney(item.amount) }}</text>
-            <text class="value-percent">{{ item.percent }}%</text>
-          </view>
-        </view>
+      <!-- 图表类型切换 -->
+      <view class="chart-tabs">
+        <view class="chart-tab" :class="{ active: chartTab === 'pie' }" @click="chartTab = 'pie'">饼图</view>
+        <view class="chart-tab" :class="{ active: chartTab === 'bar' }" @click="chartTab = 'bar'">柱状图</view>
+        <view class="chart-tab" :class="{ active: chartTab === 'line' }" @click="chartTab = 'line'">折线图</view>
+      </view>
+
+      <!-- 饼图 -->
+      <EChart v-if="chartTab === 'pie' && chartData.length > 0" key="echart-pie" :options="chartOptions" :width="chartWidth" :height="chartHeight" />
+      <!-- 柱状图 -->
+      <EChart v-if="chartTab === 'bar'" key="echart-bar" :options="barChartOptions" :width="chartWidth" :height="chartHeight" />
+      <!-- 折线图 -->
+      <EChart v-if="chartTab === 'line'" key="echart-line" :options="lineChartOptions" :width="chartWidth" :height="chartHeight" />
+      <!-- 无数据 -->
+      <view v-if="chartTab === 'pie' && chartData.length === 0" class="empty-chart">
+        <text class="empty-chart-text">暂无数据</text>
       </view>
     </view>
 
@@ -193,9 +205,16 @@
  */
 
 // 导入存储工具、格式化工具和导出工具
-import { getRecords, deleteRecord, updateRecord } from '../../utils/storage.js';
-import { formatMoney, formatDate, formatTime, formatDateTime, getCategoryStats, getCategoryIcon, CATEGORY_ICONS } from '../../utils/format.js';
+import { useRecordStore } from '../../store/record.js';
+import { useUserStore } from '../../store/user.js';
+import { formatMoney, formatDate, formatTime, formatDateTime, getCategoryIcon, CATEGORY_ICONS } from '../../utils/format.js';
 import { exportToExcel } from '../../utils/export.js';
+import {
+  getAvailableMonths, monthLabel, getWeekRange, weekLabel as formatWeekLabel,
+  filterRecords, calcChartData, calcMonthlySummary, calcDailyStats,
+  buildPieOptions, buildBarOptions, buildLineOptions
+} from '../../domain/statisticsService.js';
+import EChart from '../../components/echart/echart.vue';
 
 export default {
   /**
@@ -204,11 +223,14 @@ export default {
    * @property {string} type - 统计类型：'expense'(支出) 或 'income'(收入)
    * @property {Array} records - 用户的所有记账记录
    */
+  components: { EChart },
   data() {
     return {
       selectedDate: '',
       type: 'expense',
-      records: [],
+      chartTab: 'pie',
+      viewMode: 'month',
+      weekOffset: 0,
       showAllRecords: false,
       showEditModal: false,
       editRecord: null,
@@ -227,54 +249,30 @@ export default {
      * @returns {string[]} 格式 ["2026-06", "2026-05", ...]
      */
     availableMonthValues() {
-      const months = [...new Set(
-        this.records.filter(r => r && r.createTime).map(r => r.createTime.substring(0, 7))
-      )];
-      if (months.length === 0) {
-        const now = new Date();
-        months.push(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
-      }
-      return months.sort().reverse();
+      return getAvailableMonths(useRecordStore().records);
     },
     /**
      * 有数据月份的显示标签
      * @returns {string[]} 格式 ["2026年6月", "2026年5月", ...]
      */
     availableMonthLabels() {
-      return this.availableMonthValues.map(v => {
-        const [y, m] = v.split('-');
-        return `${y}年${parseInt(m)}月`;
-      });
+      return this.availableMonthValues.map(v => monthLabel(v));
     },
-    /**
-     * 当前选中月份在可用月份列表中的索引
-     * @returns {number}
-     */
     selectedMonthIndex() {
       const idx = this.availableMonthValues.indexOf(this.selectedDate);
       return idx >= 0 ? idx : 0;
     },
-    /**
-     * 筛选出当月的记录
-     * @returns {Array} 当月的记录数组
-     */
+    weekLabel() {
+      return formatWeekLabel(this.selectedDate, this.weekOffset);
+    },
     monthlyRecords() {
-      const month = this.selectedDate.substring(0, 7);
-      return this.records.filter(r => r && r.createTime && r.createTime.substring(0, 7) === month);
+      return filterRecords(useRecordStore().records, this.viewMode, this.selectedDate, this.weekOffset);
     },
-    /**
-     * 当月总支出
-     * @returns {number} 当月所有支出记录的金额总和
-     */
     monthlyExpense() {
-      return this.monthlyRecords.filter(r => r.type === 'expense').reduce((sum, r) => sum + parseFloat(r.amount), 0);
+      return calcMonthlySummary(this.monthlyRecords).expense;
     },
-    /**
-     * 当月总收入
-     * @returns {number} 当月所有收入记录的金额总和
-     */
     monthlyIncome() {
-      return this.monthlyRecords.filter(r => r.type === 'income').reduce((sum, r) => sum + parseFloat(r.amount), 0);
+      return calcMonthlySummary(this.monthlyRecords).income;
     },
     /**
      * 分类统计数据（用于图表展示）
@@ -296,19 +294,25 @@ export default {
       return keys.map(name => ({ name, icon: CATEGORY_ICONS[name] || '💰' }));
     },
     chartData() {
-      // 获取分类统计
-      const stats = getCategoryStats(this.monthlyRecords, this.type);
-      // 获取对应类型的总额
-      const total = this.type === 'expense' ? this.monthlyExpense : this.monthlyIncome;
-
-      // 转换为图表数据格式并按金额降序排序
-      return Object.keys(stats)
-        .map(name => ({
-          name,
-          amount: stats[name],
-          percent: total > 0 ? ((stats[name] / total) * 100).toFixed(1) : 0
-        }))
-        .sort((a, b) => b.amount - a.amount);
+      return calcChartData(this.monthlyRecords, this.type);
+    },
+    chartWidth() {
+      try { return uni.getSystemInfoSync().windowWidth - 80; } catch { return 335; }
+    },
+    chartHeight() {
+      return Math.min(this.chartData.length * 60 + 80, 320);
+    },
+    dailyStats() {
+      return calcDailyStats(this.monthlyRecords);
+    },
+    chartOptions() {
+      return buildPieOptions(this.chartData);
+    },
+    barChartOptions() {
+      return buildBarOptions(this.dailyStats);
+    },
+    lineChartOptions() {
+      return buildLineOptions(this.dailyStats);
     }
   },
   /**
@@ -321,7 +325,7 @@ export default {
    * 页面显示时执行（每次页面切换回来都会执行）
    */
   onShow() {
-    // 每次显示时刷新记录
+    useUserStore().syncTabBar();
     this.loadRecords();
   },
   methods: {
@@ -329,25 +333,33 @@ export default {
      * 加载记账记录
      */
     loadRecords() {
-      this.records = getRecords();
-      // 同步选中月份：确保当前选中的月份在可用列表中
-      const months = [...new Set(
-        this.records.filter(r => r && r.createTime).map(r => r.createTime.substring(0, 7))
-      )].sort().reverse();
-      if (months.length > 0) {
-        if (!months.includes(this.selectedDate)) {
-          this.selectedDate = months[0];
-        }
-      } else {
-        const now = new Date();
-        this.selectedDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      useRecordStore().fetch();
+      this.syncSelectedMonth();
+    },
+    syncSelectedMonth() {
+      const months = getAvailableMonths(useRecordStore().records);
+      if (!months.includes(this.selectedDate)) {
+        this.selectedDate = months[0];
       }
     },
     /**
      * 切换月份
      * @param {Object} e - 选择事件对象
      */
+    switchView(mode) {
+      this.viewMode = mode;
+      if (mode === 'month') {
+        this.weekOffset = 0;
+        this.syncSelectedMonth();
+      } else {
+        this.syncSelectedMonth();
+      }
+    },
+    shiftWeek(delta) {
+      this.weekOffset += delta;
+    },
     handleDateChange(e) {
+      this.weekOffset = 0;
       this.selectedDate = this.availableMonthValues[e.detail.value];
     },
     /**
@@ -361,10 +373,6 @@ export default {
      * @param {number} index - 索引
      * @returns {string} 颜色值
      */
-    getBarColor(index) {
-      const colors = ['#667eea', '#764ba2', '#f093fb', '#f5576c', '#4facfe', '#00f2fe', '#43e97b', '#38f9d7'];
-      return colors[index % colors.length];
-    },
     /**
      * 金额格式化（直接使用工具函数）
      */
@@ -390,7 +398,7 @@ export default {
               content: '确定删除这条记录吗？',
               success: (r) => {
                 if (r.confirm) {
-                  deleteRecord(record.id);
+                  useRecordStore().remove(record.id);
                   this.loadRecords();
                   uni.showToast({ title: '删除成功', icon: 'success' });
                 }
@@ -452,7 +460,7 @@ export default {
       if (this.editDate !== originalDate || this.editTime !== originalTime) {
         updates.createTime = new Date(`${this.editDate}T${this.editTime}:00`).toISOString();
       }
-      updateRecord(this.editRecord.id, updates);
+      useRecordStore().update(this.editRecord.id, updates);
       this.closeEdit();
       this.loadRecords();
       uni.showToast({ title: '修改成功', icon: 'success' });
@@ -488,9 +496,50 @@ export default {
  */
 .filter-bar {
   background: #fff;
-  padding: 20rpx 40rpx;
+  padding: 16rpx 40rpx;
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 24rpx;
+}
+
+.view-toggle {
+  display: flex;
+  background: #f5f5f5;
+  border-radius: 20rpx;
+  padding: 4rpx;
+}
+
+.toggle-opt {
+  padding: 8rpx 20rpx;
+  font-size: 24rpx;
+  color: #666;
+  border-radius: 16rpx;
+}
+
+.toggle-opt.active {
+  background: #667eea;
+  color: #fff;
+}
+
+.week-nav {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.nav-arrow {
+  font-size: 24rpx;
+  color: #667eea;
+  padding: 8rpx;
+}
+
+.week-label {
+  font-size: 26rpx;
+  color: #333;
+  font-weight: bold;
+  min-width: 260rpx;
+  text-align: center;
 }
 
 .date-picker {
@@ -603,10 +652,23 @@ export default {
   color: #fff;
 }
 
-.chart-container {
+.chart-tabs {
   display: flex;
-  flex-direction: column;
-  gap: 24rpx;
+  gap: 12rpx;
+  margin-bottom: 20rpx;
+}
+
+.chart-tab {
+  padding: 10rpx 24rpx;
+  font-size: 24rpx;
+  color: #999;
+  background: #f5f5f5;
+  border-radius: 20rpx;
+}
+
+.chart-tab.active {
+  background: #667eea;
+  color: #fff;
 }
 
 .chart-item {
@@ -639,28 +701,14 @@ export default {
   margin: 0 20rpx;
 }
 
-.chart-bar {
-  height: 100%;
-  border-radius: 12rpx;
-  transition: width 0.3s;
+.empty-chart {
+  padding: 60rpx 0;
+  text-align: center;
 }
 
-.chart-value {
-  width: 160rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-}
-
-.value-amount {
-  font-size: 24rpx;
-  color: #333;
-  font-weight: bold;
-}
-
-.value-percent {
-  font-size: 20rpx;
-  color: #999;
+.empty-chart-text {
+  font-size: 26rpx;
+  color: #ccc;
 }
 
 /**

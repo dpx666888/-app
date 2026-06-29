@@ -1,5 +1,8 @@
 {
   "dependencies": {
+    "crypto-js": "^4.2.0",
+    "echarts": "^6.1.0",
+    "pinia": "^3.0.4",
     "xlsx": "^0.18.5"
   }
 }

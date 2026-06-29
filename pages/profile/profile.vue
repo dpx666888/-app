@@ -116,9 +116,10 @@
 </template>
 
 <script>
-import { getCurrentUser, logout, updateAvatar, getUsers, saveUsers, saveCurrentUser } from '../../utils/storage.js';
-import { exportAllData } from '../../utils/backup.js';
-import { importData } from '../../utils/backup.js';
+import { useUserStore } from '../../store/user.js';
+import { useRecordStore } from '../../store/record.js';
+import { exportAllData, importData } from '../../utils/backup.js';
+import { exportToExcel, exportToCSV } from '../../utils/export.js';
 
 export default {
   data() {
@@ -137,13 +138,16 @@ export default {
     this.loadData();
   },
   onShow() {
+    useUserStore().syncTabBar();
     this.loadData();
   },
   methods: {
     loadData() {
-      this.user = getCurrentUser();
+      const store = useUserStore();
+      this.user = store.currentUser;
       if (this.user) {
-        this.allUsers = getUsers();
+        store.loadUsers();
+        this.allUsers = store.users;
       }
     },
     goToLogin() {
@@ -153,7 +157,6 @@ export default {
       uni.navigateTo({ url: '/pages/register/register' });
     },
 
-    // 修改密码
     showChangePassword() {
       this.oldPassword = '';
       this.newPassword = '';
@@ -165,10 +168,6 @@ export default {
         uni.showToast({ title: '请输入旧密码', icon: 'none' });
         return;
       }
-      if (this.oldPassword !== this.user.password) {
-        uni.showToast({ title: '旧密码错误', icon: 'none' });
-        return;
-      }
       if (!this.newPassword || this.newPassword.length < 6) {
         uni.showToast({ title: '新密码至少6位', icon: 'none' });
         return;
@@ -177,64 +176,48 @@ export default {
         uni.showToast({ title: '两次密码不一致', icon: 'none' });
         return;
       }
-      var users = getUsers();
-      var idx = users.findIndex(function(u) { return u.id === this.user.id; }, this);
-      if (idx === -1) {
-        uni.showToast({ title: '用户不存在', icon: 'none' });
-        return;
-      }
-      users[idx].password = this.newPassword;
-      if (saveUsers(users)) {
-        this.user.password = this.newPassword;
-        saveCurrentUser(this.user);
+      const store = useUserStore();
+      const result = store.changePassword(this.user.id, this.oldPassword, this.newPassword);
+      if (result.success) {
         uni.showToast({ title: '密码修改成功', icon: 'success' });
         this.passwordModal = false;
+        this.loadData();
       } else {
-        uni.showToast({ title: '修改失败，请重试', icon: 'none' });
+        uni.showToast({ title: result.message, icon: 'none' });
       }
     },
 
-    // 用户管理
     showUserManage() {
-      this.allUsers = getUsers();
+      const store = useUserStore();
+      store.loadUsers();
+      this.allUsers = store.users;
       this.userManageModal = true;
     },
     switchToUser(targetUser) {
-      var that = this;
       uni.showModal({
         title: '切换用户',
         content: '确定切换到用户"' + targetUser.username + '"吗？',
-        success: function(res) {
+        success: (res) => {
           if (res.confirm) {
-            saveCurrentUser(targetUser);
-            that.user = targetUser;
-            that.allUsers = getUsers();
-            that.userManageModal = false;
+            const store = useUserStore();
+            store.switchUser(targetUser);
+            this.loadData();
+            this.userManageModal = false;
             uni.showToast({ title: '已切换用户', icon: 'success' });
           }
         }
       });
     },
 
-    // 导出数据
     handleExport() {
-      var that = this;
       uni.showActionSheet({
         itemList: ['导出 Excel', '导出 CSV', '导出 JSON 备份'],
-        success: function(res) {
+        success: (res) => {
+          const records = useRecordStore().records;
           if (res.tapIndex === 0) {
-            // 延迟导入确保模块可用
-            import('../../utils/export.js').then(function(mod) {
-              mod.exportToExcel(getCurrentUser().records || []);
-            }).catch(function() {
-              uni.showToast({ title: '导出失败', icon: 'none' });
-            });
+            exportToExcel(records);
           } else if (res.tapIndex === 1) {
-            import('../../utils/export.js').then(function(mod) {
-              mod.exportToCSV(getCurrentUser().records || []);
-            }).catch(function() {
-              uni.showToast({ title: '导出失败', icon: 'none' });
-            });
+            exportToCSV(records);
           } else {
             exportAllData();
           }
@@ -242,30 +225,23 @@ export default {
       });
     },
 
-    // 导入数据
     handleImport() {
       importData();
     },
 
     // 清除数据
     confirmClearData() {
-      var that = this;
       uni.showModal({
         title: '警告',
         content: '确定要清除所有记账记录吗？此操作不可恢复！',
-        success: function(res) {
+        success: (res) => {
           if (res.confirm) {
-            var users = getUsers();
-            var idx = users.findIndex(function(u) { return u.id === that.user.id; });
-            if (idx !== -1) {
-              users[idx].records = [];
-              if (saveUsers(users)) {
-                saveCurrentUser(users[idx]);
-                that.user = users[idx];
-                uni.showToast({ title: '数据已清除', icon: 'success' });
-              } else {
-                uni.showToast({ title: '清除失败', icon: 'none' });
-              }
+            const result = useRecordStore().clearAll();
+            if (result.success) {
+              uni.showToast({ title: '数据已清除', icon: 'success' });
+              this.loadData();
+            } else {
+              uni.showToast({ title: '清除失败', icon: 'none' });
             }
           }
         }
@@ -279,14 +255,13 @@ export default {
 
     // 退出登录
     confirmLogout() {
-      var that = this;
       uni.showModal({
         title: '提示',
         content: '确定要退出登录吗？',
-        success: function(res) {
+        success: (res) => {
           if (res.confirm) {
-            logout();
-            that.loadData();
+            useUserStore().logout();
+            this.loadData();
             uni.showToast({ title: '退出成功', icon: 'success' });
           }
         }
@@ -296,24 +271,23 @@ export default {
     // 选择头像
     selectAvatar() {
       if (!this.user) return;
-      var that = this;
       uni.chooseImage({
         count: 1,
         sizeType: ['compressed'],
         sourceType: ['album', 'camera'],
-        success: function(res) {
-          // 存为永久文件，每次生成唯一路径，避免缓存导致覆盖失败
+        success: (res) => {
           uni.saveFile({
             tempFilePath: res.tempFilePaths[0],
-            success: function(saveRes) {
-              if (updateAvatar(saveRes.savedFilePath)) {
+            success: (saveRes) => {
+              const result = useUserStore().updateAvatar(saveRes.savedFilePath);
+              if (result.success) {
                 uni.showToast({ title: '头像更新成功', icon: 'success' });
-                that.loadData();
+                this.loadData();
               } else {
-                uni.showToast({ title: '头像更新失败', icon: 'none' });
+                uni.showToast({ title: result.message || '头像更新失败', icon: 'none' });
               }
             },
-            fail: function() {
+            fail: () => {
               uni.showToast({ title: '头像保存失败', icon: 'none' });
             }
           });

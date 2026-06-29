@@ -6,7 +6,7 @@
       <view
         class="tab"
         :class="{ active: type === 'expense' }"
-        @click="type = 'expense'"
+        @click="switchType('expense')"
       >
         <text class="tab-icon">💸</text>
         <text class="tab-text">支出</text>
@@ -14,7 +14,7 @@
       <view
         class="tab"
         :class="{ active: type === 'income' }"
-        @click="type = 'income'"
+        @click="switchType('income')"
       >
         <text class="tab-icon">💰</text>
         <text class="tab-text">收入</text>
@@ -76,111 +76,73 @@
  * @version 1.0
  */
 
-// 导入存储工具
-import { addRecord } from '../../utils/storage.js';
+// 导入记账 API
+import { useRecordStore } from '../../store/record.js';
+import { useUserStore } from '../../store/user.js';
+import { CATEGORY_ICONS } from '../../utils/format.js';
 
 export default {
-  /**
-   * 组件数据定义
-   * @property {string} type - 收支类型：'expense'(支出) 或 'income'(收入)
-   * @property {string} amount - 金额输入值
-   * @property {string} category - 选中的分类
-   * @property {string} note - 备注内容
-   * @property {Array} expenseCategories - 支出分类列表
-   * @property {Array} incomeCategories - 收入分类列表
-   */
   data() {
     return {
       type: 'expense',
       amount: '',
       category: '',
       note: '',
-      // 支出分类列表（9个分类）
       expenseCategories: [
-        { name: '餐饮', icon: '🍔' },
-        { name: '交通', icon: '🚗' },
-        { name: '购物', icon: '🛍️' },
-        { name: '娱乐', icon: '🎮' },
-        { name: '医疗', icon: '🏥' },
-        { name: '教育', icon: '📚' },
-        { name: '住房', icon: '🏠' },
-        { name: '通讯', icon: '📱' },
+        { name: '餐饮', icon: '🍔' }, { name: '交通', icon: '🚗' },
+        { name: '购物', icon: '🛍️' }, { name: '娱乐', icon: '🎮' },
+        { name: '医疗', icon: '🏥' }, { name: '教育', icon: '📚' },
+        { name: '住房', icon: '🏠' }, { name: '通讯', icon: '📱' },
         { name: '其他', icon: '💰' }
       ],
-      // 收入分类列表（4个分类）
       incomeCategories: [
-        { name: '工资', icon: '💼' },
-        { name: '奖金', icon: '🎁' },
-        { name: '投资', icon: '📈' },
-        { name: '其他', icon: '💰' }
+        { name: '工资', icon: '💼' }, { name: '奖金', icon: '🎁' },
+        { name: '投资', icon: '📈' }, { name: '其他', icon: '💰' }
       ]
     };
   },
   computed: {
-    /**
-     * 根据当前类型返回对应的分类列表
-     * @returns {Array} 分类数组
-     */
     categories() {
       return this.type === 'expense' ? this.expenseCategories : this.incomeCategories;
     }
   },
-  /**
-   * 页面加载时执行
-   */
   onLoad() {
-    // 默认选中第一个分类
     this.category = this.categories[0].name;
   },
+  onShow() {
+    useUserStore().syncTabBar();
+  },
   methods: {
-    /**
-     * 限制金额输入格式（最多两位小数）
-     * @param {Object} e - 输入事件对象
-     */
+    switchType(t) {
+      this.type = t;
+      this.category = this.categories[0].name;
+    },
     handleAmountInput(e) {
       let value = e.detail.value;
-      // 只保留数字和小数点
       value = value.replace(/[^\d.]/g, '');
       const parts = value.split('.');
-      // 最多一个小数点
-      if (parts.length > 2) {
-        value = parts[0] + '.' + parts[1];
-      }
-      // 小数点后最多两位
-      if (parts[1] && parts[1].length > 2) {
-        value = parts[0] + '.' + parts[1].substring(0, 2);
-      }
+      if (parts.length > 2) value = parts[0] + '.' + parts[1];
+      if (parts[1] && parts[1].length > 2) value = parts[0] + '.' + parts[1].substring(0, 2);
       this.amount = value;
     },
-    /**
-     * 保存记账记录
-     */
     saveRecord() {
-      // 验证金额是否有效
       if (!this.amount || parseFloat(this.amount) <= 0) {
         uni.showToast({ title: '请输入有效金额', icon: 'none' });
         return;
       }
-
-      // 验证分类是否选择
       if (!this.category) {
         uni.showToast({ title: '请选择分类', icon: 'none' });
         return;
       }
-
-      // 构建记录对象
-      const record = {
+      const store = useRecordStore();
+      const result = store.add({
         type: this.type,
         amount: this.amount,
         category: this.category,
         note: this.note
-      };
-
-      // 调用存储工具添加记录
-      if (addRecord(record)) {
-        // 添加成功
+      });
+      if (result.success) {
         uni.showToast({ title: '保存成功', icon: 'success' });
-        // 保存后重置表单并跳转首页
         setTimeout(() => {
           this.amount = '';
           this.note = '';
@@ -188,7 +150,6 @@ export default {
           uni.switchTab({ url: '/pages/index/index' });
         }, 1000);
       } else {
-        // 添加失败
         uni.showToast({ title: '保存失败', icon: 'none' });
       }
     }

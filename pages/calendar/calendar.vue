@@ -173,7 +173,8 @@
 </template>
 
 <script>
-import { getCurrentUser, getRecords, deleteRecord, updateRecord } from '../../utils/storage.js';
+import { useUserStore } from '../../store/user.js';
+import { useRecordStore } from '../../store/record.js';
 import { formatMoney, formatDate, formatTime, formatDateTime, getCategoryIcon, CATEGORY_ICONS } from '../../utils/format.js';
 
 export default {
@@ -277,13 +278,17 @@ export default {
     this.loadData();
   },
   onShow() {
+    useUserStore().syncTabBar();
     this.loadData();
   },
   methods: {
     loadData() {
-      this.currentUser = getCurrentUser();
+      const userStore = useUserStore();
+      this.currentUser = userStore.currentUser;
       if (!this.currentUser) return;
-      this.records = getRecords();
+      const recordStore = useRecordStore();
+      recordStore.fetch();
+      this.records = useRecordStore().records;
 
       // 初始化年月
       const now = new Date();
@@ -350,7 +355,7 @@ export default {
               content: '确定删除这条记录吗？',
               success: (r) => {
                 if (r.confirm) {
-                  deleteRecord(record.id);
+                  useRecordStore().remove(record.id);
                   this.loadData();
                   uni.showToast({ title: '删除成功', icon: 'success' });
                 }
@@ -412,7 +417,7 @@ export default {
       if (this.editDate !== originalDate || this.editTime !== originalTime) {
         updates.createTime = new Date(`${this.editDate}T${this.editTime}:00`).toISOString();
       }
-      updateRecord(this.editRecord.id, updates);
+      useRecordStore().update(this.editRecord.id, updates);
       this.closeEdit();
       this.loadData();
       uni.showToast({ title: '修改成功', icon: 'success' });

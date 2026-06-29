@@ -66,16 +66,10 @@
  * @version 1.0
  */
 
-// 导入注册工具函数
-import { register } from '../../utils/storage.js';
+// 导入注册工具
+import { useUserStore } from '../../store/user.js';
 
 export default {
-  /**
-   * 组件数据定义
-   * @property {string} username - 用户输入的用户名
-   * @property {string} password - 用户输入的密码
-   * @property {string} confirmPassword - 用户输入的确认密码
-   */
   data() {
     return {
       username: '',
@@ -84,57 +78,38 @@ export default {
     };
   },
   methods: {
-    /**
-     * 处理注册请求
-     */
     handleRegister() {
-      // 验证用户名是否为空
       if (!this.username.trim()) {
         uni.showToast({ title: '请输入用户名', icon: 'none' });
         return;
       }
-
-      // 验证密码是否为空
       if (!this.password.trim()) {
         uni.showToast({ title: '请输入密码', icon: 'none' });
         return;
       }
-
-      // 验证确认密码是否为空
       if (!this.confirmPassword.trim()) {
         uni.showToast({ title: '请确认密码', icon: 'none' });
         return;
       }
-
-      // 验证密码长度（至少6位）
       if (this.password.length < 6) {
         uni.showToast({ title: '密码长度至少6位', icon: 'none' });
         return;
       }
-
-      // 验证两次密码是否一致
       if (this.password !== this.confirmPassword) {
         uni.showToast({ title: '两次输入的密码不一致', icon: 'none' });
         return;
       }
-
-      // 调用注册方法
-      const result = register(this.username, this.password);
-
+      const store = useUserStore();
+      const result = store.register(this.username, this.password);
       if (result.success) {
-        // 注册成功，跳转首页
         uni.showToast({ title: '注册成功', icon: 'success' });
         setTimeout(() => {
           uni.switchTab({ url: '/pages/index/index' });
         }, 1000);
       } else {
-        // 注册失败，显示错误信息
         uni.showToast({ title: result.message, icon: 'none' });
       }
     },
-    /**
-     * 跳转到登录页面
-     */
     goToLogin() {
       uni.navigateTo({ url: '/pages/login/login' });
     }

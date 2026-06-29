@@ -203,8 +203,9 @@
  */
 
 // 导入存储工具和格式化工具
-import { getCurrentUser, getRecords, deleteRecord, updateRecord } from '../../utils/storage.js';
-import { formatMoney, formatDate, formatTime, formatDateTime, calculateTotal, getCategoryIcon, CATEGORY_ICONS } from '../../utils/format.js';
+import { useUserStore } from '../../store/user.js';
+import { useRecordStore } from '../../store/record.js';
+import { formatMoney, formatDate, formatTime, formatDateTime, getCategoryIcon, CATEGORY_ICONS, calculateTotal } from '../../utils/format.js';
 
 export default {
   /**
@@ -329,7 +330,7 @@ export default {
    * 页面显示时执行（每次页面切换回来都会执行）
    */
   onShow() {
-    // 每次页面显示时刷新数据，确保数据最新
+    useUserStore().syncTabBar();
     this.loadData();
   },
   methods: {
@@ -337,18 +338,15 @@ export default {
      * 加载用户和记录数据
      */
     loadData() {
-      // 获取当前登录用户
-      this.currentUser = getCurrentUser();
+      const userStore = useUserStore();
+      this.currentUser = userStore.currentUser;
       if (this.currentUser) {
-        // 获取用户的记账记录
-        this.records = getRecords();
-        // 重置显示数量
+        const recordStore = useRecordStore();
+        recordStore.fetch();
+        this.records = recordStore.records;
         this.displayCount = 10;
-        // 设置问候语
         this.setGreeting();
-        // 设置日期显示
         this.setDate();
-        // 初始化悬浮按钮位置
         this.initFabPosition();
       }
     },
@@ -481,11 +479,8 @@ export default {
               content: '确定删除这条记录吗？',
               success: (r) => {
                 if (r.confirm) {
-                  // 确认删除
-                  deleteRecord(record.id);
-                  // 刷新数据
+                  useRecordStore().remove(record.id);
                   this.loadData();
-                  // 提示删除成功
                   uni.showToast({ title: '删除成功', icon: 'success' });
                 }
               }
@@ -563,7 +558,7 @@ export default {
       if (this.editDate !== originalDate || this.editTime !== originalTime) {
         updates.createTime = new Date(`${this.editDate}T${this.editTime}:00`).toISOString();
       }
-      updateRecord(this.editRecord.id, updates);
+      useRecordStore().update(this.editRecord.id, updates);
       this.closeEdit();
       this.loadData();
       uni.showToast({ title: '修改成功', icon: 'success' });

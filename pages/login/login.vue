@@ -54,15 +54,10 @@
  * @version 1.0
  */
 
-// 导入登录工具函数
-import { login } from '../../utils/storage.js';
+// 导入登录工具
+import { useUserStore } from '../../store/user.js';
 
 export default {
-  /**
-   * 组件数据定义
-   * @property {string} username - 用户输入的用户名
-   * @property {string} password - 用户输入的密码
-   */
   data() {
     return {
       username: '',
@@ -70,39 +65,26 @@ export default {
     };
   },
   methods: {
-    /**
-     * 处理登录请求
-     */
     handleLogin() {
-      // 验证用户名是否为空
       if (!this.username.trim()) {
         uni.showToast({ title: '请输入账号', icon: 'none' });
         return;
       }
-
-      // 验证密码是否为空
       if (!this.password.trim()) {
         uni.showToast({ title: '请输入密码', icon: 'none' });
         return;
       }
-
-      // 调用登录方法
-      const result = login(this.username, this.password);
-
+      const store = useUserStore();
+      const result = store.login(this.username, this.password);
       if (result.success) {
-        // 登录成功，跳转首页
         uni.showToast({ title: '登录成功', icon: 'success' });
         setTimeout(() => {
           uni.switchTab({ url: '/pages/index/index' });
         }, 1000);
       } else {
-        // 登录失败，显示错误信息
         uni.showToast({ title: result.message, icon: 'none' });
       }
     },
-    /**
-     * 跳转到注册页面
-     */
     goToRegister() {
       uni.navigateTo({ url: '/pages/register/register' });
     }
