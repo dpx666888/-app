@@ -20,6 +20,10 @@ export function getAllRecords() {
   return getItem(RECORD_KEY) || [];
 }
 
+export function saveAllRecords(records) {
+  return setItem(RECORD_KEY, records);
+}
+
 export function getRecordsByUser(userId) {
   return getAllRecords().filter(r => r.userId === userId);
 }
