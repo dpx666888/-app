@@ -43,6 +43,10 @@
         "navigationBarTitleText": "注册",
         "navigationStyle": "custom"
       }
+    },
+    {
+      "path": "pages/migrate/migrate",
+      "style": { "navigationBarTitleText": "数据恢复" }
     }
   ],
   "globalStyle": {
