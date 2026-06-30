@@ -107,7 +107,7 @@
     </view>
 
     <!-- 悬浮记账按钮 -->
-    <view v-if="currentUser" class="fab" :style="fabStyle" @touchstart="onFabTouchStart" @touchmove="onFabTouchMove" @touchend="onFabTouchEnd" @tap="onFabTap">
+    <view v-if="currentUser" class="fab" :style="fabStyle" @touchstart.stop="onFabTouchStart" @touchmove.stop.prevent="onFabTouchMove" @touchend.stop="onFabTouchEnd" @tap="onFabTap">
       <text class="fab-icon">＋</text>
       <text class="fab-text">记一笔</text>
     </view>
@@ -376,7 +376,7 @@ export default {
       const t = e.touches[0];
       const dx = t.clientX - this.fabTouchStartX;
       const dy = t.clientY - this.fabTouchStartY;
-      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
         this.fabMoved = true;
       }
       const info = uni.getSystemInfoSync();
