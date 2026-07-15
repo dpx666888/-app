@@ -107,7 +107,7 @@
     </view>
 
     <!-- 悬浮记账按钮 -->
-    <view v-if="currentUser" class="fab" :style="fabStyle" @touchstart.stop="onFabTouchStart" @touchmove.stop.prevent="onFabTouchMove" @touchend.stop="onFabTouchEnd" @tap="onFabTap">
+    <view v-if="currentUser" ref="fabRef" class="fab" :style="fabStyle" @touchstart.stop="onFabTouchStart" @touchmove.stop.prevent="onFabTouchMove" @touchend.stop="onFabTouchEnd" @tap="onFabTap">
       <text class="fab-icon">＋</text>
       <text class="fab-text">记一笔</text>
     </view>
@@ -240,13 +240,13 @@ export default {
       editShowTime: true,
       editNote: '',
       displayCount: 6,
-      fabLeft: -1,
-      fabTop: -1,
+      fabBaseLeft: -1,
+      fabBaseTop: -1,
+      fabOffsetX: 0,
+      fabOffsetY: 0,
       fabMoved: false,
       fabTouchStartX: 0,
-      fabTouchStartY: 0,
-      fabStartLeft: 0,
-      fabStartTop: 0
+      fabTouchStartY: 0
     };
   },
   computed: {
@@ -306,8 +306,11 @@ export default {
      */
     fabStyle() {
       const s = {};
-      if (this.fabLeft >= 0) { s.left = this.fabLeft + 'px'; s.right = 'auto'; }
-      if (this.fabTop >= 0) { s.top = this.fabTop + 'px'; s.bottom = 'auto'; }
+      if (this.fabBaseLeft >= 0) s.left = this.fabBaseLeft + 'px';
+      if (this.fabBaseTop >= 0) s.top = this.fabBaseTop + 'px';
+      if (this.fabOffsetX || this.fabOffsetY) {
+        s.transform = 'translate(' + this.fabOffsetX + 'px,' + this.fabOffsetY + 'px)';
+      }
       return s;
     },
     editCategories() {
@@ -357,11 +360,11 @@ export default {
       this.displayCount += 10;
     },
     initFabPosition() {
-      if (this.fabLeft < 0 || this.fabTop < 0) {
+      if (this.fabBaseLeft < 0 || this.fabBaseTop < 0) {
         const info = uni.getSystemInfoSync();
         const r = info.windowWidth / 750;
-        this.fabLeft = info.windowWidth - 130 * r - 30 * r;
-        this.fabTop = info.windowHeight - 130 * r - 240 * r;
+        this.fabBaseLeft = info.windowWidth - 130 * r - 30 * r;
+        this.fabBaseTop = info.windowHeight - 130 * r - 240 * r;
       }
     },
     onFabTouchStart(e) {
@@ -369,8 +372,8 @@ export default {
       this.fabMoved = false;
       this.fabTouchStartX = t.clientX;
       this.fabTouchStartY = t.clientY;
-      this.fabStartLeft = this.fabLeft;
-      this.fabStartTop = this.fabTop;
+      // 缓存屏幕信息，避免 touchmove 中重复调用
+      this._fabInfo = uni.getSystemInfoSync();
     },
     onFabTouchMove(e) {
       const t = e.touches[0];
@@ -379,17 +382,25 @@ export default {
       if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
         this.fabMoved = true;
       }
-      const info = uni.getSystemInfoSync();
-      const r = info.windowWidth / 750;
-      const btnPx = 130 * r;
-      let newLeft = this.fabStartLeft + dx;
-      let newTop = this.fabStartTop + dy;
-      newLeft = Math.max(0, Math.min(info.windowWidth - btnPx, newLeft));
-      newTop = Math.max(0, Math.min(info.windowHeight - btnPx - 100 * r, newTop));
-      this.fabLeft = newLeft;
-      this.fabTop = newTop;
+      // 只更新偏移量，通过 transform 移动，不触发布局重排
+      this.fabOffsetX = dx;
+      this.fabOffsetY = dy;
     },
     onFabTouchEnd() {
+      if (!this.fabMoved) { this._fabInfo = null; return; }
+      const info = this._fabInfo;
+      if (!info) return;
+      const r = info.windowWidth / 750;
+      const btnPx = 130 * r;
+      let newLeft = this.fabBaseLeft + this.fabOffsetX;
+      let newTop = this.fabBaseTop + this.fabOffsetY;
+      newLeft = Math.max(0, Math.min(info.windowWidth - btnPx, newLeft));
+      newTop = Math.max(0, Math.min(info.windowHeight - btnPx - 100 * r, newTop));
+      this.fabBaseLeft = newLeft;
+      this.fabBaseTop = newTop;
+      this.fabOffsetX = 0;
+      this.fabOffsetY = 0;
+      this._fabInfo = null;
     },
     onFabTap() {
       if (this.fabMoved) return;
@@ -1181,6 +1192,7 @@ export default {
   justify-content: center;
   box-shadow: 0 8rpx 30rpx rgba(102, 126, 234, 0.4);
   z-index: 100;
+  will-change: transform;
 }
 
 .fab-icon {

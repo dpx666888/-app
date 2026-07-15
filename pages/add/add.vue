@@ -65,6 +65,18 @@
 
     <!-- 保存按钮 -->
     <button class="save-btn" @click="saveRecord">保存</button>
+
+    <!-- 记账成功浮层 -->
+    <view v-if="showSuccess" class="success-overlay" @click="dismissSuccess">
+      <view class="success-card" @click.stop>
+        <text class="success-icon">✅</text>
+        <text class="success-title">保存成功</text>
+        <view class="success-actions">
+          <button class="success-btn again" @click="recordAgain">再记一笔</button>
+          <button class="success-btn cancel" @click="goHome">取消</button>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
@@ -88,6 +100,7 @@ export default {
       amount: '',
       category: '',
       note: '',
+      showSuccess: false,
       expenseCategories: [
         { name: '餐饮', icon: '🍔' }, { name: '交通', icon: '🚗' },
         { name: '购物', icon: '🛍️' }, { name: '娱乐', icon: '🎮' },
@@ -111,6 +124,9 @@ export default {
   },
   onShow() {
     useUserStore().syncTabBar();
+  },
+  beforeDestroy() {
+    if (this._successTimer) clearTimeout(this._successTimer);
   },
   methods: {
     switchType(t) {
@@ -142,16 +158,30 @@ export default {
         note: this.note
       });
       if (result.success) {
-        uni.showToast({ title: '保存成功', icon: 'success' });
-        setTimeout(() => {
-          this.amount = '';
-          this.note = '';
-          this.category = this.categories[0].name;
-          uni.switchTab({ url: '/pages/index/index' });
-        }, 1000);
+        this.showSuccess = true;
+        this._successTimer = setTimeout(() => this.goHome(), 4000);
       } else {
         uni.showToast({ title: '保存失败', icon: 'none' });
       }
+    },
+    dismissSuccess() {
+      if (this._successTimer) clearTimeout(this._successTimer);
+      this.goHome();
+    },
+    recordAgain() {
+      if (this._successTimer) clearTimeout(this._successTimer);
+      this.showSuccess = false;
+      this.amount = '';
+      this.note = '';
+      this.category = this.categories[0].name;
+    },
+    goHome() {
+      this.showSuccess = false;
+      if (this._successTimer) clearTimeout(this._successTimer);
+      this.amount = '';
+      this.note = '';
+      this.category = this.categories[0].name;
+      uni.switchTab({ url: '/pages/index/index' });
     }
   }
 };
@@ -329,5 +359,65 @@ export default {
   bottom: 100rpx;
   left: 40rpx;
   right: 40rpx;
+}
+
+/**
+ * 保存成功浮层
+ */
+.success-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.success-card {
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 60rpx 80rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.success-icon {
+  font-size: 64rpx;
+  margin-bottom: 20rpx;
+}
+
+.success-title {
+  font-size: 36rpx;
+  font-weight: bold;
+  color: #333;
+  margin-bottom: 40rpx;
+}
+
+.success-actions {
+  display: flex;
+  gap: 24rpx;
+}
+
+.success-btn {
+  min-width: 180rpx;
+  height: 80rpx;
+  border-radius: 40rpx;
+  font-size: 30rpx;
+  border: none;
+}
+
+.success-btn.again {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+}
+
+.success-btn.cancel {
+  background: #f5f5f5;
+  color: #666;
 }
 </style>

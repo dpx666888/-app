@@ -65,13 +65,15 @@
         <view class="chart-tab" :class="{ active: chartTab === 'line' }" @click="chartTab = 'line'">折线图</view>
       </view>
 
-      <!-- 饼图 -->
-      <EChart v-if="chartTab === 'pie' && chartData.length > 0" key="echart-pie" :options="chartOptions" :width="chartWidth" :height="chartHeight" />
-      <!-- 柱状图 -->
-      <EChart v-if="chartTab === 'bar'" key="echart-bar" :options="barChartOptions" :width="chartWidth" :height="chartHeight" />
-      <!-- 折线图 -->
-      <EChart v-if="chartTab === 'line'" key="echart-line" :options="lineChartOptions" :width="chartWidth" :height="chartHeight" />
-      <!-- 无数据 -->
+      <!-- 时间范围（仅柱状/折线图） -->
+      <view v-if="chartTab !== 'pie' && viewMode === 'month'" class="range-tabs">
+        <view v-if="chartTab === 'bar'" class="range-tab" :class="{ active: chartRange === '1day' }" @click="chartRange = '1day'">今天</view>
+        <view class="range-tab" :class="{ active: chartRange === '7days' }" @click="chartRange = '7days'">近7天</view>
+        <view class="range-tab" :class="{ active: chartRange === '15days' }" @click="chartRange = '15days'">近15天</view>
+        <view class="range-tab" :class="{ active: chartRange === 'month' }" @click="chartRange = 'month'">{{ monthLabelText }}</view>
+      </view>
+      <!-- 图表 -->
+      <EChart :options="currentChartOptions" :width="chartWidth" :height="chartHeight" />
       <view v-if="chartTab === 'pie' && chartData.length === 0" class="empty-chart">
         <text class="empty-chart-text">暂无数据</text>
       </view>
@@ -229,6 +231,7 @@ export default {
       selectedDate: '',
       type: 'expense',
       chartTab: 'pie',
+      chartRange: '7days',
       viewMode: 'month',
       weekOffset: 0,
       showAllRecords: false,
@@ -300,19 +303,53 @@ export default {
       try { return uni.getSystemInfoSync().windowWidth - 80; } catch { return 335; }
     },
     chartHeight() {
-      return Math.min(this.chartData.length * 60 + 80, 320);
+      return 280;
     },
     dailyStats() {
       return calcDailyStats(this.monthlyRecords);
+    },
+    filteredDailyStats() {
+      if (this.viewMode === 'week') return this.dailyStats;
+      const stats = this.dailyStats;
+      const days = Object.keys(stats).sort();
+      if (days.length === 0) return {};
+      if (this.chartRange === 'month') return stats;
+      const countMap = { '1day': 1, '7days': 7, '15days': 15 };
+      const count = countMap[this.chartRange] || 7;
+      const result = {};
+      days.slice(-count).forEach(d => { result[d] = stats[d]; });
+      return result;
+    },
+    monthLabelText() {
+      if (!this.selectedDate) return '';
+      return parseInt(this.selectedDate.split('-')[1]) + '月';
+    },
+    weekDayLabels() {
+      if (this.viewMode !== 'week') return null;
+      const days = Object.keys(this.filteredDailyStats).sort();
+      if (days.length === 0) return null;
+      const year = this.selectedDate.split('-')[0];
+      const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+      return days.map(d => {
+        const date = new Date(year + '-' + d);
+        const parts = d.split('-');
+        return '周' + weekdays[date.getDay()] + ' ' + parseInt(parts[0]) + '/' + parseInt(parts[1]);
+      });
     },
     chartOptions() {
       return buildPieOptions(this.chartData);
     },
     barChartOptions() {
-      return buildBarOptions(this.dailyStats);
+      return buildBarOptions(this.filteredDailyStats, this.weekDayLabels);
     },
     lineChartOptions() {
-      return buildLineOptions(this.dailyStats);
+      return buildLineOptions(this.filteredDailyStats, this.weekDayLabels);
+    },
+    currentChartOptions() {
+      if (this.chartTab === 'bar') return this.barChartOptions;
+      if (this.chartTab === 'line') return this.lineChartOptions;
+      // 饼图：无数据时传空 options 以触发 ECharts 空状态
+      return this.chartData.length > 0 ? this.chartOptions : {};
     }
   },
   /**
@@ -348,12 +385,8 @@ export default {
      */
     switchView(mode) {
       this.viewMode = mode;
-      if (mode === 'month') {
-        this.weekOffset = 0;
-        this.syncSelectedMonth();
-      } else {
-        this.syncSelectedMonth();
-      }
+      this.weekOffset = 0;
+      this.syncSelectedMonth();
     },
     shiftWeek(delta) {
       this.weekOffset += delta;
@@ -667,6 +700,25 @@ export default {
 }
 
 .chart-tab.active {
+  background: #667eea;
+  color: #fff;
+}
+
+.range-tabs {
+  display: flex;
+  gap: 8rpx;
+  margin-bottom: 20rpx;
+}
+
+.range-tab {
+  padding: 6rpx 18rpx;
+  font-size: 22rpx;
+  color: #999;
+  background: #f5f5f5;
+  border-radius: 12rpx;
+}
+
+.range-tab.active {
   background: #667eea;
   color: #fff;
 }

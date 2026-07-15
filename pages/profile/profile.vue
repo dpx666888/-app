@@ -95,7 +95,7 @@
       <view class="modal-content" @click.stop>
         <view class="about-header">
           <text class="about-title">🦀 螃蟹记账</text>
-          <text class="about-version">版本 1.2.2</text>
+          <text class="about-version">版本 0.3.2</text>
         </view>
         <view class="about-content">
           <text class="about-text">螃蟹记账，一款轻量级的个人财务管理工具，帮您清晰掌握每一笔收支，养成良好理财习惯。</text>
