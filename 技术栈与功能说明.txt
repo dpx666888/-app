@@ -1,6 +1,6 @@
 ============================================================
   🦀 螃蟹记账 - 技术栈与功能说明
-  版本: 1.2.2 | 作者: 大螃蟹
+  版本: 0.3.2 | 作者: 大螃蟹
 ============================================================
 
 一、技术栈
@@ -8,8 +8,15 @@
   前端框架:     uni-app (基于 Vue 3 Options API)
   编程语言:     JavaScript (ES6+)
   样式方案:     SCSS + rpx 响应式单位
+  状态管理:     Pinia (v3) — 响应式状态管理
+  图表方案:     ECharts (v6) — renderjs 跨端渲染
   开发工具:     HBuilderX
-  核心依赖:     xlsx (v0.18.5) — Excel 文件的读写
+  核心依赖:
+    echarts (v6.1.0)   — 专业图表（饼图/柱状图/折线图）
+    pinia   (v3.0.4)   — 响应式状态管理
+    pako    (v3.0.1)   — 备份文件 gzip 压缩
+    crypto-js (v4.2.0) — 密码加盐哈希存储
+    xlsx    (v0.18.5)  — Excel 文件的读写
   数据存储:     uni-app Storage API (本地 localStorage)
   目标平台:     Android (APK) / iOS / H5 浏览器 / 微信小程序
   配色主题:     紫蓝渐变 (#667eea → #764ba2) + 红橙渐变
@@ -25,20 +32,43 @@
   ├── uni.scss                   # 全局 SCSS 变量
   ├── package.json               # 依赖管理
   │
-  ├── pages/
-  │   ├── index/index.vue        # 首页 (仪表盘)
-  │   ├── add/add.vue            # 记账页
-  │   ├── report/report.vue      # 统计页
-  │   ├── profile/profile.vue    # 个人中心
-  │   ├── login/login.vue        # 登录页
-  │   └── register/register.vue  # 注册页
+  ├── domain/                    # 领域层（业务逻辑）
+  │   ├── statisticsService.js   #   统计计算（分类/日/月度/图表数据）
+  │   ├── recordService.js       #   记录增删改查
+  │   ├── recordValidator.js     #   记录数据校验
+  │   └── userService.js         #   用户注册/登录/密码管理
+  │
+  ├── store/                     # 状态管理层（Pinia）
+  │   ├── record.js              #   记录状态
+  │   └── user.js                #   用户状态
+  │
+  ├── components/                # 组件层
+  │   └── echart/echart.vue      #   ECharts 渲染组件（renderjs 模式）
+  │
+  ├── pages/                     # 页面层
+  │   ├── index/index.vue        #   首页 (仪表盘 + 悬浮记账按钮)
+  │   ├── add/add.vue            #   记账页
+  │   ├── report/report.vue      #   统计页（ECharts 图表）
+  │   ├── profile/profile.vue    #   个人中心
+  │   ├── login/login.vue        #   登录页
+  │   └── register/register.vue  #   注册页
   │
   ├── utils/
-  │   ├── storage.js             # 本地存储 CRUD (用户/记录/头像)
-  │   ├── format.js              # 日期金额格式化 & 分类统计
-  │   ├── export.js              # Excel/CSV 导出 (多平台适配)
-  │   ├── backup.js              # JSON 备份 & 导入 (多平台适配)
-  │   └── permission.js          # Android 存储权限申请
+  │   ├── storage/               #   存储层（拆分存储）
+  │   │   ├── userStorage.js     #     用户数据 CRUD
+  │   │   ├── recordStorage.js   #     记录数据 CRUD
+  │   │   └── storage.js         #     旧版兼容 / 通用工具
+  │   ├── crypto/index.js        #   密码哈希（加盐）
+  │   ├── backup.js              #   JSON gzip 压缩备份 & 导入
+  │   ├── export.js              #   Excel/CSV 导出 (多平台适配)
+  │   ├── format.js              #   日期金额格式化
+  │   ├── date.js                #   日期计算工具
+  │   ├── money.js               #   金额格式化工具
+  │   ├── categoryIcons.js       #   分类图标映射
+  │   ├── migrateData.js         #   v1→v2 数据迁移
+  │   ├── permission.js          #   Android 存储权限申请
+  │   ├── domain/statistics.js   #   旧版统计（兼容）
+  │   └── error/index.js         #   错误处理
   │
   └── static/                    # 图标 & 图片资源
 
@@ -48,7 +78,8 @@
 
 【1. 用户系统】
   - 注册：用户名 + 密码 (至少6位)，自动登录
-  - 登录：验证用户名密码，登录后进入首页
+  - 密码安全：crypto-js 加盐哈希存储（非明文）
+  - 登录：验证密码哈希，登录后进入首页
   - 多用户：支持多个账号，可在"用户管理"中一键切换
   - 修改密码：验证旧密码后修改
   - 头像上传：支持拍照 / 相册选取，本地文件存储
@@ -56,6 +87,7 @@
 
 【2. 记账记录管理】
   - 快速记账：选择支出/收入 → 输入金额 → 选择分类 → 填写备注(可选)
+  - 保存成功浮层：记录保存后弹出浮层，"再记一笔"或"取消"返回首页
   - 收支类型：支出(expense) / 收入(income)
   - 支出分类：餐饮、交通、购物、娱乐、医疗、教育、住房、通讯、其他 (9类)
   - 收入分类：工资、奖金、投资、其他 (4类)
@@ -68,24 +100,28 @@
   - 显示当前用户名、日期、星期
   - 本月概览卡片：总支出 / 总收入 / 结余
   - 最近记录列表 (按时间倒序，每次显示10条，加载更多)
+  - 悬浮记账按钮 (FAB)：可拖拽移动（transform 偏移优化），点击跳转记账
   - 未登录时显示欢迎引导页 + 功能预览
 
-【4. 统计图表】
+【4. 统计图表（ECharts）】
   - 月份选择器：可切换查看任意月份
+  - 周/月双视图切换
   - 当月支出 & 收入汇总
-  - 分类分布图：按类型展示各分类金额占比 (进度条 + 百分比)
-  - 明细记录列表 (时间倒序，默认展示3条可展开)
+  - 饼图：分类金额占比，可切换查看支出/收入
+  - 柱状图 & 折线图：每日收支趋势
+  - 时间范围筛选（柱/折线图）：今天 / 近7天 / 近15天 / 整月
+  - 明细记录列表 (时间倒序)
   - 底部固定导出按钮
 
 【5. 数据导出】
   - Excel 导出 (.xlsx)：带进度提示，大数据量异步分批处理
   - CSV 导出 (.csv)：BOM 头支持中文，多平台适配
-  - JSON 备份：包含版本号、导出时间、所有用户数据
+  - JSON gzip 压缩备份：base64 编码，体积更小，兼容旧格式导入
   - 三种格式均支持：Android (系统文件选择器) / H5 (浏览器下载) / 微信小程序
 
 【6. 数据导入】
-  - JSON 备份文件导入
-  - 显示备份时间、用户数量预览
+  - JSON 备份文件导入（自动识别 gzip 压缩格式 + 旧版纯 JSON）
+  - 显示备份版本、备份时间、用户数量预览
   - 导入前确认：覆盖当前所有数据
   - 支持：Android (ContentResolver) / H5 (FileReader) / 微信小程序 (chooseMessageFile)
 
@@ -100,7 +136,7 @@
   --------------|---------|-----|-----|----------
   记账 CRUD     |    ✓    |  ✓  |  ✓  |   ✓
   用户系统      |    ✓    |  ✓  |  ✓  |   ✓
-  分类统计      |    ✓    |  ✓  |  ✓  |   ✓
+  ECharts 图表  |    ✓    |  ✓  |  ✓  |   ✓
   Excel 导出    |    ✓    |  ✓  |  ✓  |   ✓
   CSV 导出      |    ✓    |  ✓  |  ✓  |   ✓
   JSON 备份     |    ✓    |  ✓  |  ✓  |   ✓
@@ -111,27 +147,31 @@
 五、数据存储设计
 ------------------------------------------------------------
   存储方式: uni.setStorageSync (同步本地存储)
+  存储拆分: 用户数据与记录数据分离存储
+
   数据结构:
     users: [
       {
-        id:       "唯一ID (时间戳+随机数)",
-        username: "用户名",
-        password: "密码 (明文)",
-        avatar:   "头像文件路径",
-        records: [
-          {
-            id:         "记录唯一ID",
-            type:       "expense | income",
-            amount:     100.00,
-            category:   "分类名称",
-            note:       "备注",
-            createTime: "ISO 8601 时间字符串"
-          }
-        ]
+        id:          "唯一ID (时间戳+随机数)",
+        username:    "用户名",
+        passwordHash: "密码 (加盐哈希)",
+        salt:        "盐值",
+        avatar:      "头像文件路径"
+      }
+    ]
+    records: [
+      {
+        id:         "记录唯一ID",
+        userId:     "所属用户ID",
+        type:       "expense | income",
+        amount:     100.00,
+        category:   "分类名称",
+        note:       "备注",
+        createTime: "ISO 8601 时间字符串"
       }
     ]
     current_user: { 当前登录用户的完整对象 }
 
 ============================================================
-  生成时间: 2026-05-16
+  生成时间: 2026-05-16 | 最后更新: 2026-07-15
 ============================================================

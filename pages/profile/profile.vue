@@ -112,6 +112,18 @@
         <button class="close-btn" @click="showAboutModal = false">知道了</button>
       </view>
     </view>
+
+    <!-- 导出进度弹窗 -->
+    <view v-if="showExportProgress" class="modal-overlay" @click="dismissProgress">
+      <view class="export-progress-card" @click.stop>
+        <text class="export-progress-title">{{ exportLabel }}</text>
+        <view class="progress-track">
+          <view class="progress-bar" :style="{ width: exportPercent + '%' }"></view>
+        </view>
+        <text class="export-progress-text">{{ Math.round(exportPercent) }}%</text>
+        <text class="export-progress-cancel" @click.stop="dismissProgress">取消</text>
+      </view>
+    </view>
   </view>
 </template>
 
@@ -119,7 +131,7 @@
 import { useUserStore } from '../../store/user.js';
 import { useRecordStore } from '../../store/record.js';
 import { exportAllData, importData } from '../../utils/backup.js';
-import { exportToExcel, exportToCSV } from '../../utils/export.js';
+import { exportToExcel, exportToCSV, importCSV } from '../../utils/export.js';
 
 export default {
   data() {
@@ -131,7 +143,11 @@ export default {
       userManageModal: false,
       oldPassword: '',
       newPassword: '',
-      confirmNewPassword: ''
+      confirmNewPassword: '',
+      showExportProgress: false,
+      exportPercent: 0,
+      exportLabel: '',
+      _importTimer: null
     };
   },
   onLoad() {
@@ -213,23 +229,92 @@ export default {
       uni.showActionSheet({
         itemList: ['导出 Excel', '导出 CSV', '导出 JSON 备份'],
         success: (res) => {
+          if (res.tapIndex === 2) {
+            // JSON 备份 — exportAllData 自带 loading 和 toast
+            this.$nextTick(() => { exportAllData(); });
+            return;
+          }
           const records = useRecordStore().records;
+          if (records.length === 0) {
+            uni.showToast({ title: '暂无数据可以导出', icon: 'none' });
+            return;
+          }
+          this.showExportProgress = true;
           if (res.tapIndex === 0) {
-            exportToExcel(records);
-          } else if (res.tapIndex === 1) {
-            exportToCSV(records);
+            this.exportLabel = '正在导出 Excel...';
+            this.exportPercent = 0;
+            this.$nextTick(() => {
+              exportToExcel(records, { onProgress: (p) => { this.onExportProgress(p); } });
+            });
           } else {
-            exportAllData();
+            this.exportLabel = '正在导出 CSV...';
+            this.exportPercent = 0;
+            this.$nextTick(() => {
+              exportToCSV(records, { onProgress: (p) => { this.onExportProgress(p); } });
+            });
           }
         }
       });
     },
 
+    onExportProgress(ratio) {
+      this.exportPercent = Math.round(ratio * 100);
+      if (ratio >= 0.95) {
+        setTimeout(() => { this.showExportProgress = false; }, 1200);
+      }
+    },
+
     handleImport() {
-      importData();
+      uni.showActionSheet({
+        itemList: ['导入 JSON 备份', '导入 CSV'],
+        success: (res) => {
+          this.showExportProgress = true;
+          this.exportPercent = 0;
+          this.exportLabel = '请选择备份文件...';
+          // 30 秒安全超时，防止取消文件选择导致卡死
+          this._importTimer = setTimeout(() => {
+            this.showExportProgress = false;
+          }, 30000);
+          if (res.tapIndex === 0) {
+            importData(this.onImportProgress);
+          } else {
+            importCSV(this.onImportProgress);
+          }
+        }
+      });
+    },
+
+    onImportProgress(ratio) {
+      if (ratio < 0) {
+        // 导入出错，关闭进度蒙层
+        this.showExportProgress = false;
+        if (this._importTimer) { clearTimeout(this._importTimer); this._importTimer = null; }
+        return;
+      }
+      this.exportPercent = Math.round(ratio * 100);
+      if (ratio < 0.15) {
+        this.exportLabel = '正在启动...';
+      } else if (ratio < 0.3) {
+        this.exportLabel = '请选择备份文件...';
+      } else if (ratio < 0.5) {
+        this.exportLabel = '正在解析数据...';
+      } else if (ratio < 0.7) {
+        this.exportLabel = '等待确认...';
+      } else if (ratio < 1) {
+        this.exportLabel = '正在保存数据...';
+      } else {
+        this.exportLabel = '导入完成！';
+        if (this._importTimer) { clearTimeout(this._importTimer); this._importTimer = null; }
+        setTimeout(() => { this.showExportProgress = false; }, 1500);
+      }
     },
 
     // 清除数据
+    dismissProgress() {
+      this.showExportProgress = false;
+      if (this._importTimer) { clearTimeout(this._importTimer); this._importTimer = null; }
+    },
+
     confirmClearData() {
       uni.showModal({
         title: '警告',
@@ -612,5 +697,52 @@ export default {
   font-size: 24rpx;
   color: #999;
   margin-bottom: 20rpx;
+}
+
+/* 导出进度 */
+.export-progress-card {
+  width: 60%;
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 50rpx 40rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.export-progress-title {
+  font-size: 30rpx;
+  color: #333;
+  margin-bottom: 30rpx;
+}
+
+.progress-track {
+  width: 100%;
+  height: 24rpx;
+  background: #f0f0f0;
+  border-radius: 12rpx;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12rpx;
+  transition: width 0.3s ease;
+}
+
+.export-progress-text {
+  font-size: 26rpx;
+  color: #999;
+  margin-top: 20rpx;
+}
+
+.export-progress-cancel {
+  font-size: 26rpx;
+  color: #999;
+  margin-top: 30rpx;
+  padding: 10rpx 30rpx;
+  border: 1rpx solid #ddd;
+  border-radius: 12rpx;
 }
 </style>
